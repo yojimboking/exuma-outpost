@@ -36,10 +36,12 @@ npm run dev
 
 ## A note on images
 
-The property photo library (`public/photos/`, roughly 500MB of originals) is **not included** in this
-repository. Image paths are declared in [`lib/constants.ts`](lib/constants.ts); the pages will render
-with broken images until equivalent files are supplied at those paths. Several sections also reference
-Unsplash URLs as placeholders.
+The 78 photos the site references are included in `public/photos/`, web-sized (max 1800px, heroes
+2400px) with EXIF metadata stripped — about 34MB total, so the site renders immediately after
+`npm install && npm run dev`. These are compressed for the web, not the originals; the full-resolution
+library lives outside this repository. Image paths are declared in [`lib/constants.ts`](lib/constants.ts).
+
+Several sections still point at Unsplash URLs as placeholders rather than property photos.
 
 ## Status
 
