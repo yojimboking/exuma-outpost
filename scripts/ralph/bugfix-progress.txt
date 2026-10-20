@@ -1,0 +1,415 @@
+# Bug Fix Progress Log
+
+Started: 2026-01-18
+Source: BUG_REPORT.md
+
+## Codebase Patterns
+
+- Use `??` not `||` for null/undefined checks (preserves 0 and '')
+- Always guard spreads: `const safe = obj ?? {}` before `...safe`
+- Early return for empty arrays before array operations
+- Stripe API versions don't have suffixes like `.acacia`
+- Server-side validation required for all payment amounts
+
+---
+
+## 2026-01-18 - CRIT-001: Client-Controlled Payment Totals Enable Underpayment
+- **What was fixed:** Added server-side price recalculation to prevent underpayment attacks
+- **Files changed:** `app/api/create-payment-link/route.ts`
+- **Implementation details:**
+  - Added `calculateTrustedTotal()` function that recalculates pricing from trusted sources
+  - Uses `calculateStayTotal()` from constants for accommodation pricing
+  - Validates service IDs against `SERVICES` constant and applies correct priceType logic
+  - Uses `PRICING.cleaningFee` instead of client-provided value
+  - Deposit now calculated from trusted total (50% of verified grandTotal)
+  - Both Stripe and WhatsApp fallback now use `verifiedBookingContext`
+- **Tests added:** None (existing functionality, security fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** e92c9880
+
+---
+
+## 2026-01-18 - HIGH-001: Null Spread of extractedContext Causes Runtime Crash
+- **What was fixed:** Guard against null `extractedContext` being spread into objects
+- **Files changed:** `hooks/useSharellChat.ts`
+- **Implementation details:**
+  - Added `const extracted = data.extractedContext ?? {}` to normalize null/undefined to empty object
+  - Updated three locations where `data.extractedContext` was spread:
+    1. `setBookingContext()` update - now uses `extracted` with length check
+    2. `/api/notify` body - now spreads `extracted` instead of raw value
+    3. `onBookingConfirmed()` callback - now spreads `extracted` instead of raw value
+- **Tests added:** None (runtime safety fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** e1befb87
+
+---
+
+## 2026-01-18 - HIGH-002: Invalid Stripe API Version Causes Runtime Failure
+- **What was fixed:** Replaced invalid Stripe API version with valid version
+- **Files changed:** `app/api/create-payment-link/route.ts`
+- **Implementation details:**
+  - Changed `apiVersion: '2024-12-18.acacia'` to `apiVersion: '2023-10-16'`
+  - The `.acacia` suffix was not a valid Stripe API version format
+  - Stripe SDK would throw an error at runtime with the invalid version
+- **Tests added:** None (configuration fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** fd3f4882
+
+---
+
+## 2026-01-18 - HIGH-003: Availability API Exists But Not Integrated in UI
+- **What was fixed:** Replaced hardcoded blackout dates with live API integration
+- **Files changed:** `components/sections/InquiryForm.tsx`
+- **Implementation details:**
+  - Added `blockedDates` state to store blocked dates from API
+  - Added useEffect to fetch `/api/availability` on component mount
+  - Converts API response date strings (YYYY-MM-DD) to Date objects
+  - Replaced hardcoded `blackoutDates` useMemo with API-driven `blockedDates` state
+  - Updated `isBlackoutDate` function to use `blockedDates` instead of static dates
+- **Tests added:** None (integration fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** a017a08f
+
+---
+
+## 2026-01-18 - HIGH-004: iCal Parsing Ignores Line Endings and Timezones
+- **What was fixed:** Rewrote iCal parser to handle RFC 5545 line folding and timezone semantics
+- **Files changed:** `lib/calendar-sync.ts`
+- **Implementation details:**
+  - Added `unfoldICalLines()` to handle RFC 5545 line folding (CRLF followed by whitespace)
+  - Normalize line endings from CRLF to LF for cross-platform compatibility
+  - Rewrote `parseICalDate()` with proper handling for:
+    - DATE only values (YYYYMMDD)
+    - Local datetime (YYYYMMDDTHHMMSS)
+    - UTC datetime (YYYYMMDDTHHMMSSZ)
+    - VALUE=DATE prefix detection
+  - All dates normalized to UTC midnight using `Date.UTC()` to prevent off-by-one errors
+  - Added `normalizeToUTCDate()` helper for consistent date comparisons
+  - Detect VALUE=DATE vs VALUE=DATE-TIME in DTSTART/DTEND parsing
+  - Note: Attempted to use node-ical library but it has bundling issues with Next.js
+- **Tests added:** None (parser fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 3dc04faa
+
+---
+
+## 2026-01-18 - HIGH-005: PII Logged to Console in Production
+- **What was fixed:** Removed personally identifiable information from console logs
+- **Files changed:** `app/api/notify/route.ts`, `app/api/create-payment-link/route.ts`
+- **Implementation details:**
+  - notify/route.ts: Replaced full email content log (which included name, email, phone, transcript)
+    with structured non-PII metadata (checkIn, checkOut, nights, guestCount, servicesCount, grandTotal)
+  - create-payment-link/route.ts: Changed error logging to only log `error.message` instead of
+    full error objects which may contain PII in error details
+  - Both routes now use consistent `[Notify]` and `[Payment]` log prefixes
+- **Tests added:** None (privacy/security fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** fd4dcda4
+
+---
+
+## 2026-01-18 - HIGH-006: Public API Endpoints Lack Rate Limiting
+- **What was fixed:** Added in-memory rate limiting to all public API endpoints
+- **Files changed:**
+  - `lib/rate-limit.ts` (new file)
+  - `app/api/chat/route.ts`
+  - `app/api/create-payment-link/route.ts`
+  - `app/api/notify/route.ts`
+- **Implementation details:**
+  - Created `lib/rate-limit.ts` with sliding window rate limiter implementation
+  - No external dependencies required (uses in-memory Map for simplicity)
+  - Includes automatic cleanup of old entries every 60 seconds to prevent memory leaks
+  - Rate limits per endpoint:
+    - `/api/chat`: 10 requests/minute (most API cost sensitive)
+    - `/api/create-payment-link`: 5 requests/minute (fraud prevention)
+    - `/api/notify`: 10 requests/minute (spam prevention)
+  - Returns proper HTTP 429 response with Retry-After header and rate limit headers
+  - `getClientIP()` helper handles various proxy headers (x-forwarded-for, x-real-ip, cf-connecting-ip)
+  - Note: For multi-server deployments, upgrade to @upstash/ratelimit with Redis
+- **Tests added:** None (security fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 9e9039b5
+
+---
+
+## 2026-01-18 - HIGH-007: eval() Used for Dynamic Stripe Import
+- **What was fixed:** Replaced eval('require(...)') with standard ES dynamic import
+- **Files changed:** `app/api/create-payment-link/route.ts`
+- **Implementation details:**
+  - Removed `eval(\`require('${moduleName}')\`)` pattern
+  - Now uses `await import(/* webpackIgnore: true */ stripePkg)` for dynamic import
+  - webpackIgnore comment prevents webpack from bundling it as required dependency
+  - Maintains graceful fallback to WhatsApp when Stripe module is not installed
+  - Fixes CSP violations in strict Content-Security-Policy environments
+  - Eliminates potential code injection risk from eval()
+- **Tests added:** None (security fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 0deda22c
+
+---
+
+---
+
+## 2026-01-18 - MED-001: Booking Context State Doesn't Sync with Prop Changes
+- **What was fixed:** Added useEffect to sync internal bookingContext state when initialContext prop changes
+- **Files changed:** `hooks/useSharellChat.ts`
+- **Implementation details:**
+  - Added `useEffect` to the react imports
+  - Added effect that calls `setBookingContext(initialContext)` when `initialContext` changes
+  - This ensures reopening the chat modal after changing services/dates shows updated data
+  - Previously, the useState(initialContext) only captured the initial value on mount
+- **Tests added:** None (state management fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 1e9e04aa
+
+---
+
+## 2026-01-18 - MED-002: Guest Count of 2 Treated as "Not Provided"
+- **What was fixed:** Guest count of 2 now properly detected when user explicitly mentions it in conversation
+- **Files changed:** `hooks/useSharellChat.ts`
+- **Implementation details:**
+  - Added regex patterns to detect explicit guest count mentions: "2 guests", "for 2", "party of 2", "just me", "couple", "two of us"
+  - Updated `deriveCollectedInfo()`: `hasGuestCount` now true if value is non-default OR user explicitly mentioned guests
+  - Updated `determineConversationPhase()`: confirmation phase check uses same guest count detection logic
+  - Updated `hasBasicContext` check to recognize explicitly provided counts even when value is 2
+  - Previously, `guestCount === 2` was always treated as "not provided" since 2 is the default
+- **Tests added:** None (logic fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 3dbdecdd
+
+---
+
+## 2026-01-18 - MED-003: Duplicate Notification Triggers
+- **What was fixed:** Removed duplicate notification call from InquiryForm callback
+- **Files changed:** `components/sections/InquiryForm.tsx`
+- **Implementation details:**
+  - Removed `/api/notify` fetch call from `handleBookingConfirmed` callback
+  - The useSharellChat hook (lines 517-531) already sends notifications when payment link is generated or handoff is triggered
+  - The callback was creating duplicate notifications every time a booking was confirmed
+  - Now the callback only handles UI-level concerns (opening WhatsApp with summary)
+  - Also removed unused `context` and `messages` parameters from callback signature
+  - Removed unused `ChatMessage` import
+- **Tests added:** None (duplicate fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** f4a1274c
+
+## 2026-01-18 - MED-004: Add-ons Charged Per-Day Even Without Dates Selected
+- **What was fixed:** Per-day add-ons no longer show charges when no dates are selected
+- **Files changed:** `components/sections/InquiryForm.tsx`
+- **Implementation details:**
+  - Changed `per_day` pricing case in `addOnsTotal` calculation
+  - Previously used `Math.max(nights, 1)` which charged for 1 day even when `nights === 0`
+  - Now uses `if (nights > 0)` guard to only calculate price when dates are selected
+  - Per-day add-ons show $0 contribution until user selects check-in and check-out dates
+- **Tests added:** None (UI logic fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 7b5016bb
+
+---
+
+## 2026-01-18 - MED-007: Duplicated ConversationPhase Types
+- **What was fixed:** Consolidated duplicated ConversationPhase type to single source of truth
+- **Files changed:** `lib/booking-context.ts`, `hooks/useSharellChat.ts`, `lib/sharell-prompt.ts`
+- **Implementation details:**
+  - Moved `ConversationPhase` type definition to `lib/booking-context.ts` as the canonical source
+  - Updated `hooks/useSharellChat.ts` to import from `@/lib/booking-context` instead of defining locally
+  - Updated `lib/sharell-prompt.ts` to import from `./booking-context` instead of defining locally
+  - Both files re-export the type for backward compatibility with existing consumers
+  - Prevents future bugs from type mismatches if one definition is changed without the other
+- **Tests added:** None (type consolidation)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 492c7d66
+
+---
+
+## 2026-01-18 - MED-005: WhatsApp Fallback Shows "null" for Missing Dates
+- **What was fixed:** WhatsApp message now shows "TBD" instead of "null" for missing dates
+- **Files changed:** `app/api/create-payment-link/route.ts`
+- **Implementation details:**
+  - Added `formatDate` helper function that returns the date value or "TBD" if null/undefined
+  - Applied to both checkIn and checkOut values in the WhatsApp message template
+  - Uses nullish coalescing (`??`) for proper null handling
+- **Tests added:** None (string formatting fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 08b16080
+
+---
+
+## 2026-01-18 - MED-009: Missing Unit Tests for Critical Functions
+- **What was fixed:** Added Vitest unit testing framework with comprehensive tests for critical business logic
+- **Files changed:**
+  - `package.json` (added vitest dependency and test:unit scripts)
+  - `vitest.config.ts` (new file - Vitest configuration)
+  - `tests/unit/constants.test.ts` (new file - 23 tests)
+  - `tests/unit/calendar-sync.test.ts` (new file - 17 tests)
+- **Implementation details:**
+  - Added Vitest as devDependency with npm scripts: `test:unit` and `test:unit:watch`
+  - Created comprehensive tests for `lib/constants.ts`:
+    - `calculateStayTotal()` - high/low/shoulder season, cross-season, edge cases
+    - `getSeasonForDate()` and `getPriceForDate()` helpers
+    - `calculateRefund()` cancellation policy tiers (60+, 30-60, <30 days)
+    - SERVICES constant validation (price types, inquire vs priced)
+    - SEASON_INFO structure and pricing hierarchy
+  - Created comprehensive tests for `lib/calendar-sync.ts`:
+    - `isDateBlocked()` - start/end boundary handling, empty arrays
+    - `doesRangeOverlap()` - various overlap scenarios, exclusive end semantics
+    - UTC date handling consistency
+  - Total: 40 passing tests covering critical pricing and availability logic
+- **Tests added:** 40 unit tests (self-referential for this fix)
+- **Verification:** typecheck ✓, build ✓, test:unit ✓ (40 tests pass)
+- **Commit:** 281ef7e0
+
+---
+
+## 2026-01-18 - MED-006: Phone Extraction Regex Too Permissive
+- **What was fixed:** Replaced naive phone regex with libphonenumber-js validation
+- **Files changed:** `app/api/chat/route.ts`, `package.json`
+- **Implementation details:**
+  - Installed `libphonenumber-js` package for proper phone number validation
+  - Replaced basic `[\d\s()-]{10,}` regex that matched dates and prices
+  - New implementation uses `parsePhoneNumberFromString()` with US as default country code
+  - Only accepts strings that pass `isValidPhoneNumber()` check
+  - Formats validated numbers in E.164 international format (e.g., +14155551234)
+  - Exuma is served by US area codes, so US default is appropriate
+  - Prevents false positives from dates like "2024-12-25" or prices like "1,234.00"
+- **Tests added:** None (dependency-based validation)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 411cab2b
+
+---
+
+## 2026-01-18 - MED-008: Remote Images Marked as Unoptimized
+- **What was fixed:** Enabled Next.js image optimization for remote Unsplash images
+- **Files changed:** `components/sections/ExploreArea.tsx`
+- **Implementation details:**
+  - Removed `unoptimized` prop from Image component on line 101
+  - The domain `images.unsplash.com` was already configured in `next.config.mjs` remotePatterns
+  - Added `sizes` prop with responsive breakpoints: "100vw on mobile, 50vw on tablet, 25vw on desktop"
+  - This enables automatic image resizing, WebP/AVIF format conversion, and quality optimization
+  - Improves Largest Contentful Paint (LCP) performance metric
+- **Tests added:** None (configuration/performance fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 5d5e4cd8
+
+---
+
+## 2026-01-18 - MED-010: Timezone Issues in Availability API
+- **What was fixed:** Date formatting in availability API now uses UTC methods to prevent timezone shifts
+- **Files changed:** `app/api/availability/route.ts`
+- **Implementation details:**
+  - Replaced `setDate()` / `toISOString()` pattern with timestamp-based iteration
+  - Use `getTime()` to work with milliseconds and increment by `ONE_DAY_MS` constant
+  - Format dates using `getUTCFullYear()`, `getUTCMonth()`, `getUTCDate()` for consistent output
+  - Manually construct YYYY-MM-DD string to avoid any locale or timezone dependency
+  - Prevents dates from shifting by a day when server timezone differs from UTC
+- **Tests added:** None (date formatting fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 9bbc79d3
+
+---
+
+## 2026-01-18 - LOW-001: Zero Price Treated as Null/Missing
+- **What was fixed:** Zero prices ($0) now display correctly instead of showing "Inquire"
+- **Files changed:** `components/sections/InquiryForm.tsx`, `lib/booking-context.ts`
+- **Implementation details:**
+  - InquiryForm.tsx: Changed `service?.price || null` to `service?.price ?? null`
+    - The `||` operator was treating `0` as falsy, converting free services to `null`
+    - Nullish coalescing (`??`) only converts `null/undefined`, preserving `0`
+  - booking-context.ts: Changed truthy check `s.price ?` to explicit `s.price !== null ?`
+    - Ensures services with $0 price show "$0" in email notifications
+    - Previously showed "Inquire" for free services
+- **Tests added:** None (operator fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 8f80f191
+
+---
+
+## 2026-01-18 - LOW-002: Lightbox Swipe Fails at Screen Edge
+- **What was fixed:** Touch swipe now works correctly when starting from the left edge of screen (x=0)
+- **Files changed:** `components/gallery/Lightbox.tsx`
+- **Implementation details:**
+  - Changed `if (!touchStart || !touchEnd) return` to `if (touchStart === null || touchEnd === null) return`
+  - The falsy check `!touchStart` was treating `0` (left screen edge) as falsy, causing early return
+  - Explicit null checks using `=== null` preserve the valid coordinate value of `0`
+  - Swipe gesture now works reliably across the entire screen width
+- **Tests added:** None (UI interaction fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** ddf8e5da
+
+---
+
+## 2026-01-18 - LOW-003: Empty Images Array Causes Crash
+- **What was fixed:** Lightbox no longer crashes when images array is empty
+- **Files changed:** `components/ui/Lightbox.tsx`
+- **Implementation details:**
+  - Added early guard `if (images.length === 0) return` inside `goNext()` callback
+  - Added early guard `if (images.length === 0) return` inside `goPrev()` callback
+  - Combined empty array check with existing `!isOpen` check: `if (!isOpen || images.length === 0) return null`
+  - Prevents division by zero in modulo operations: `(prev + 1) % images.length`
+  - Prevents undefined access at `images[currentIndex]`
+  - Guards placed after hooks to comply with React hooks rules (no conditional hooks)
+- **Tests added:** None (edge case fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 6945b814
+
+---
+
+## 2026-01-18 - LOW-004: Contact Section Hard-Codes WhatsApp Number
+- **What was fixed:** WhatsApp URL now uses CONTACT constant instead of hardcoded values
+- **Files changed:** `components/sections/Contact.tsx`
+- **Implementation details:**
+  - Replaced hardcoded `12425551234` number with `CONTACT.whatsapp` (after stripping + prefix)
+  - Replaced hardcoded message string with `CONTACT.whatsappMessage`
+  - Uses `encodeURIComponent()` for proper URL encoding of the message
+  - Now if the phone number or default message changes in constants, Contact section stays in sync
+- **Tests added:** None (constant usage fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** 6214450c
+
+---
+
+## 2026-01-18 - LOW-005: README Port Mismatch
+- **What was fixed:** README now shows correct dev server port (3000)
+- **Files changed:** `README.md`
+- **Implementation details:**
+  - Changed `localhost:3001` to `localhost:3000` in Quick Start section
+  - Next.js dev server defaults to port 3000 (as used in playwright.config.ts)
+  - The port 3001 was incorrect and would confuse developers
+- **Tests added:** None (documentation fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** c547b2b7
+
+---
+
+## 2026-01-18 - LOW-007: Unused formatDate Helper
+- **What was fixed:** Removed unused formatDate helper function
+- **Files changed:** `components/sections/InquiryForm.tsx`
+- **Implementation details:**
+  - Removed `formatDate(date: Date): string` function (lines 12-17)
+  - This function was defined but never called anywhere in the file
+  - The similar `formatDateForWhatsApp` function is actually used for WhatsApp messages
+  - Dead code removal improves maintainability
+- **Tests added:** None (dead code removal)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** de8ba4ee
+
+---
+
+## 2026-01-18 - LOW-008: No Security Headers Configured
+- **What was fixed:** Added security headers to Next.js configuration
+- **Files changed:** `next.config.mjs`
+- **Implementation details:**
+  - Added `headers()` async function to Next.js config
+  - Applies headers to all routes via `/:path*` source pattern
+  - Headers added:
+    - `X-Frame-Options: DENY` - Prevents clickjacking attacks by disallowing page embedding
+    - `X-Content-Type-Options: nosniff` - Prevents MIME-type sniffing attacks
+    - `Referrer-Policy: strict-origin-when-cross-origin` - Limits referrer information leakage
+    - `X-XSS-Protection: 1; mode=block` - Legacy XSS protection for older browsers
+    - `Permissions-Policy: camera=(), microphone=(), geolocation=()` - Disables unnecessary browser APIs
+  - Note: Content-Security-Policy not added as it requires careful tuning for inline scripts/styles
+- **Tests added:** None (configuration fix)
+- **Verification:** typecheck ✓, build ✓
+- **Commit:** feff7438
+
+---

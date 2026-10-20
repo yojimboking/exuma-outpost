@@ -1,0 +1,107 @@
+{
+  "feature": "OwnerRez Integration - Phase 1-3",
+  "description": "Replace broken Sharell AI chat system with OwnerRez-ready backend. Delete broken code, create mock availability/inquiry APIs, simplify InquiryForm.",
+  "branchName": "ralph/ownerrez-integration",
+  "createdAt": "2026-02-01",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Delete broken chat API and components",
+      "acceptanceCriteria": [
+        "app/api/chat/ directory deleted",
+        "components/chat/ directory deleted",
+        "hooks/useSharellChat.ts deleted",
+        "No imports of SharellChat or useSharellChat remain in codebase",
+        "npm run build passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Start with the chat system which is the most broken. Check InquiryForm.tsx for chat imports."
+    },
+    {
+      "id": "US-002",
+      "title": "Delete broken payment and unused API routes",
+      "acceptanceCriteria": [
+        "app/api/create-payment-link/ directory deleted",
+        "app/api/notify/ directory deleted",
+        "npm run build passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "These routes have security vulnerabilities and are unused."
+    },
+    {
+      "id": "US-003",
+      "title": "Remove Anthropic SDK and clean lib files",
+      "acceptanceCriteria": [
+        "@anthropic-ai/sdk removed from package.json",
+        "lib/sharell-prompt.ts deleted",
+        "lib/booking-context.ts deleted",
+        "lib/calendar-sync.ts deleted",
+        "npm install runs successfully",
+        "npm run build passes"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "The calendar-sync.ts will be replaced. sharell-prompt.ts and booking-context.ts were for AI chat."
+    },
+    {
+      "id": "US-004",
+      "title": "Create mock OwnerRez availability API",
+      "acceptanceCriteria": [
+        "app/api/availability/route.ts returns mock blocked dates",
+        "Response format: { blockedDates: string[], lastUpdated: string }",
+        "Mock data includes some realistic blocked date ranges",
+        "1-hour revalidation cache maintained",
+        "npm run build passes"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "No real API credentials yet. Mock realistic data. Keep same response format the frontend expects."
+    },
+    {
+      "id": "US-005",
+      "title": "Create inquiry submission API route",
+      "acceptanceCriteria": [
+        "app/api/inquire/route.ts created",
+        "POST endpoint accepts: name, email, guests, checkIn, checkOut, addOns, message",
+        "Validates required fields (name, email, checkIn, checkOut)",
+        "Returns { success: true, inquiryId: string, message: string }",
+        "Logs inquiry data to console (placeholder for OwnerRez)",
+        "npm run build passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "Placeholder for OwnerRez guest/quote creation. Structure ready for real API integration later."
+    },
+    {
+      "id": "US-006",
+      "title": "Simplify InquiryForm - remove chat, add thank you state",
+      "acceptanceCriteria": [
+        "All SharellChat/chat modal imports and code removed",
+        "Form submits to /api/inquire endpoint",
+        "Success state shows thank you message in-form (no modal)",
+        "Error handling shows user-friendly error message",
+        "Loading state during submission",
+        "npm run build passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "Keep existing form fields (dates, guests, add-ons). Remove all chat modal logic. Show confirmation inline."
+    },
+    {
+      "id": "US-007",
+      "title": "Final verification and cleanup",
+      "acceptanceCriteria": [
+        "No references to deleted files remain",
+        "No TypeScript errors",
+        "No unused imports",
+        "npm run build passes",
+        "Site loads without console errors"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "Final sweep for any remaining issues. Check for dangling imports or references."
+    }
+  ]
+}

@@ -1,0 +1,124 @@
+# Ralph Progress Log - OwnerRez Integration
+Started: 2026-02-01
+Branch: ralph/ownerrez-integration
+
+## Codebase Patterns
+
+### Project Structure
+- Next.js 14 App Router
+- Components in /components (sections/, chat/)
+- Hooks in /hooks
+- Lib utilities in /lib
+- API routes in /app/api
+
+### Styling
+- Tailwind CSS
+- Custom colors: ink (#1A1A1A), paper (#FAFAFA), warm-gray
+- Framer Motion for animations
+- EB Garamond font
+
+### State Management
+- React hooks (useState, useEffect, useMemo)
+- Custom hooks for complex logic
+- No external state library
+
+### API Patterns
+- Route handlers in app/api/*/route.ts
+- POST for mutations, GET for reads
+- Return NextResponse.json()
+- Use revalidate export for caching
+
+### Key Constants (lib/constants.ts)
+- PROPERTY: name, location, amenities, sleeps 12
+- PRICING: $2000/night high, $1750 shoulder, $1500 low, 7 night min
+- SERVICES: airport transfer, chef, boat charter, etc.
+- BOOKING_MANAGER: Sharell info, WhatsApp number
+
+### Testing Commands
+- `npm run build` - Full production build (primary verification)
+- `npm run dev` - Local server on :3000
+
+### Migration Context
+- Removing broken Sharell AI chat system
+- Replacing with OwnerRez-ready mock APIs
+- No OwnerRez credentials yet - use mock data
+- Keep beautiful custom UI, only backend changes
+
+---
+
+## Stories Completed
+
+---
+## 2026-02-01 - US-001: Delete broken chat API and components
+- Deleted app/api/chat/, components/chat/, hooks/useSharellChat.ts
+- Updated InquiryForm.tsx to remove SharellChat import and all chat state
+- Changed confirmation flow to go directly to WhatsApp instead of opening chat
+- Button text changed from "CHAT WITH SHARELL" to "CONTACT SHARELL"
+- Updated AGENTS.md files in hooks/ and app/api/ to document removal
+- Build passes successfully
+
+**Files changed:**
+- app/api/chat/route.ts (deleted)
+- components/chat/SharellChat.tsx (deleted)
+- components/chat/AGENTS.md (deleted)
+- hooks/useSharellChat.ts (deleted)
+- components/sections/InquiryForm.tsx (removed chat imports, updated handlers)
+- hooks/AGENTS.md (updated)
+- app/api/AGENTS.md (updated)
+
+**Learnings:**
+- InquiryForm had deep integration with SharellChat via BookingContext type
+- The confirmation modal was a two-step flow (show details -> open chat)
+- Simplified to one-step: show details -> open WhatsApp
+- AGENTS.md files exist in hooks/ and app/api/ - must update when removing files
+
+---
+## 2026-02-01 - US-002: Delete broken payment and unused API routes
+- Deleted app/api/create-payment-link/ directory
+- Deleted app/api/notify/ directory
+- Updated app/api/AGENTS.md to mark routes as deleted
+- Updated lib/AGENTS.md to mark payment flow as deprecated
+- Build passes successfully
+
+**Files changed:**
+- app/api/create-payment-link/route.ts (deleted)
+- app/api/notify/route.ts (deleted)
+- app/api/AGENTS.md (updated)
+- lib/AGENTS.md (updated)
+
+**Learnings:**
+- Both routes imported from lib/booking-context.ts which is scheduled for deletion in US-003
+- Routes were not imported by any TypeScript files, only referenced in documentation
+- lib/AGENTS.md also documented the payment flow - needed to mark as deprecated
+- The create-payment-link route had complex Stripe integration with server-side price validation
+
+---
+## 2026-02-01 - US-003 & US-004: Remove Anthropic SDK and create mock availability
+- Removed @anthropic-ai/sdk from package.json (4 packages removed)
+- Deleted lib/sharell-prompt.ts (AI prompt builder, 592 lines)
+- Deleted lib/booking-context.ts (chat types, 183 lines)
+- Deleted lib/calendar-sync.ts (iCal parsing, 245 lines)
+- Deleted tests/unit/calendar-sync.test.ts (138 lines)
+- Updated app/api/availability/route.ts with mock blocked dates
+- Updated AGENTS.md files in lib/, app/api/, tests/
+- Build passes successfully
+
+**Files changed:**
+- package.json (removed @anthropic-ai/sdk)
+- package-lock.json (removed 4 packages)
+- lib/sharell-prompt.ts (deleted)
+- lib/booking-context.ts (deleted)
+- lib/calendar-sync.ts (deleted)
+- tests/unit/calendar-sync.test.ts (deleted)
+- app/api/availability/route.ts (replaced with mock data)
+- lib/AGENTS.md (major rewrite)
+- app/api/AGENTS.md (added mock data note)
+- tests/AGENTS.md (noted deleted test)
+
+**Learnings:**
+- US-003 and US-004 overlapped since availability/route.ts imported calendar-sync.ts
+- Combined into single commit to avoid intermediate broken state
+- lib/sharell-knowledge.ts and lib/rate-limit.ts are now orphaned (not imported anywhere)
+- Marked for cleanup in US-007
+- Mock availability uses simple date math: next 2 weeks + 6 weeks out + 10 weeks out
+
